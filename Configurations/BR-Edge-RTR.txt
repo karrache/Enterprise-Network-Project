@@ -1,0 +1,263 @@
+
+!
+upgrade fpd auto
+version 15.0
+service timestamps debug datetime msec localtime show-timezone
+service timestamps log datetime msec localtime show-timezone
+no service password-encryption
+!
+hostname BR-Edge-RTR
+!
+boot-start-marker
+boot-end-marker
+!
+logging buffered 16384
+!
+no aaa new-model
+!
+!
+!
+ip source-route
+ip cef
+!
+!
+!
+!
+ip domain name enterprise.local
+login block-for 120 attempts 3 within 30
+login on-failure log
+login on-success log
+no ipv6 cef
+!
+multilink bundle-name authenticated
+!
+!
+!
+!
+!
+!
+!
+!
+username admine privilege 15 secret 5 $1$OLwb$ZYXYoyOQD321vaWyLjrnE.
+!
+redundancy
+!
+!
+ip ssh time-out 60
+ip ssh version 2
+!
+class-map match-all CM_COPP_OSPF
+ match access-group name ACL_COPP_OSPF
+class-map match-all CM_COPP_ICMP
+ match access-group name ACL_COPP_ICMP
+class-map match-all CM_COPP_MGM
+ match access-group name ACL_COPP_MGM
+class-map match-all VOICE
+ match  dscp ef 
+!
+!
+policy-map WAN-LLQ
+ class VOICE
+    priority percent 20
+ class class-default
+    fair-queue
+policy-map PM_COPP
+ class CM_COPP_OSPF
+    police 512000 conform-action transmit  exceed-action transmit 
+ class CM_COPP_MGM
+    police 256000 conform-action transmit  exceed-action drop 
+ class CM_COPP_ICMP
+    police 128000 conform-action transmit  exceed-action drop 
+ class class-default
+    police 512000 conform-action transmit  exceed-action transmit 
+policy-map WAN-SHAPER
+ class class-default
+    shape average 90000000
+  service-policy WAN-LLQ
+!
+! 
+!
+crypto isakmp policy 10
+ encr aes 256
+ authentication pre-share
+ group 14
+crypto isakmp key Cisco123Secret address 203.0.113.2
+!
+!
+crypto ipsec transform-set TS_AES256_SHA256 esp-aes 256 esp-sha-hmac 
+!
+crypto ipsec profile IPSEC_PROFILE
+ set transform-set TS_AES256_SHA256 
+!
+!
+!
+!
+!
+!
+!
+interface Tunnel0
+ description GRE/IPSEC Tunnel to HQ
+ ip address 172.16.255.2 255.255.255.252
+ ip mtu 1400
+ ip tcp adjust-mss 1360
+ ip ospf authentication message-digest
+ ip ospf message-digest-key 1 md5 Cisco123
+ ip ospf 1 area 0
+ tunnel source Ethernet1/0
+ tunnel destination 203.0.113.2
+ tunnel protection ipsec profile IPSEC_PROFILE
+ !
+!
+interface FastEthernet0/0
+ no ip address
+ shutdown
+ duplex half
+ !
+!
+interface Ethernet1/0
+ ip address 198.51.100.2 255.255.255.252
+ ip nat outside
+ ip virtual-reassembly
+ duplex half
+ !
+ service-policy output WAN-SHAPER
+!
+interface Ethernet1/1
+ ip address 10.20.3.1 255.255.255.252
+ ip nat inside
+ ip virtual-reassembly
+ ip ospf authentication message-digest
+ ip ospf message-digest-key 1 md5 Cisco123
+ ip ospf 1 area 20
+ duplex full
+ !
+!
+interface Ethernet1/2
+ ip address 10.20.3.5 255.255.255.252
+ ip nat inside
+ ip virtual-reassembly
+ ip ospf authentication message-digest
+ ip ospf message-digest-key 1 md5 Cisco123
+ ip ospf 1 area 20
+ duplex full
+ !
+!
+interface Ethernet1/3
+ no ip address
+ shutdown
+ duplex half
+ !
+!
+interface Ethernet1/4
+ no ip address
+ shutdown
+ duplex half
+ !
+!
+interface Ethernet1/5
+ no ip address
+ shutdown
+ duplex half
+ !
+!
+interface Ethernet1/6
+ no ip address
+ shutdown
+ duplex half
+ !
+!
+interface Ethernet1/7
+ no ip address
+ shutdown
+ duplex half
+ !
+!
+!
+router ospf 1
+ router-id 55.55.55.55
+ log-adjacency-changes
+ area 0 authentication message-digest
+ area 20 authentication message-digest
+ area 20 range 10.20.0.0 255.255.0.0
+ network 10.20.3.0 0.0.0.3 area 20
+ network 10.20.3.4 0.0.0.3 area 20
+ network 10.20.200.0 0.0.0.3 area 20
+ network 10.20.200.4 0.0.0.3 area 20
+ network 10.20.0.0 0.0.255.255 area 20
+ network 172.16.255.0 0.0.0.3 area 0
+ default-information originate
+!
+ip forward-protocol nd
+no ip http server
+no ip http secure-server
+!
+!
+ip nat inside source list NAT_ACL interface Ethernet1/0 overload
+ip route 0.0.0.0 0.0.0.0 198.51.100.1
+!
+ip access-list standard BR_GUEST_NAT_ACL
+ permit 10.20.2.0 0.0.0.255
+ip access-list standard MGMT_ACL
+ permit 10.10.10.0 0.0.0.255
+ permit 10.20.10.0 0.0.0.255
+ deny   any log
+!
+ip access-list extended ACL_COPP_ICMP
+ permit icmp any any
+ip access-list extended ACL_COPP_MGM
+ permit tcp any any eq 22
+ip access-list extended ACL_COPP_OSPF
+ permit ospf any any
+ip access-list extended BR_GUEST_ACL
+ permit ip 10.20.2.0 0.0.0.255 any
+ip access-list extended NAT_ACL
+ deny   ip 10.10.0.0 0.0.255.255 10.20.0.0 0.0.255.255
+ permit ip 10.20.0.0 0.0.255.255 any
+!
+logging 10.10.0.4
+!
+!
+!
+!
+snmp-server group NOC-GROUP v3 auth read v3-read-view 
+snmp-server view v3-read-view iso included
+snmp-server enable traps snmp authentication linkdown linkup
+snmp-server host 10.10.0.4 version 3 auth NOC-ADMIN 
+!
+!
+control-plane
+ service-policy input PM_COPP
+ !
+!
+!
+mgcp fax t38 ecm
+mgcp behavior g729-variants static-pt
+!
+!
+!
+gatekeeper
+ shutdown
+!
+!
+line con 0
+ exec-timeout 5 0
+ logging synchronous
+ stopbits 1
+line aux 0
+ stopbits 1
+line vty 0 4
+ access-class MGMT_ACL in
+ exec-timeout 5 0
+ logging synchronous
+ login local
+ transport input ssh
+line vty 5 15
+ access-class MGMT_ACL in
+ exec-timeout 5 0
+ logging synchronous
+ login local
+ transport input ssh
+!
+ntp server 10.10.3.5
+end
+
